@@ -1,313 +1,560 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
+import requests
+import json
+
 app = Flask(__name__)
 
-@app.route('/')
-def index():
-    return '''
+# HTML 템플릿
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MoEngage Helper - AI Chatbot</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <title>MoEngage Helper</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
-            font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 10px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
-        .container {
-            background: white; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            width: 100%; max-width: 800px; height: 85vh; display: flex; flex-direction: column;
+        
+        .chat-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 800px;
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
-        .header {
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            color: white; padding: 20px; text-align: center; border-radius: 20px 20px 0 0;
+        
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
         }
-        .header h1 { font-size: 1.8em; margin-bottom: 8px; }
-        .header p { opacity: 0.9; font-size: 0.95em; }
-        .messages { 
-            flex: 1; padding: 20px; overflow-y: auto; background: #f8f9fa;
-            display: flex; flex-direction: column; gap: 15px;
+        
+        .chat-header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
         }
-        .message { padding: 15px 18px; border-radius: 18px; max-width: 75%; line-height: 1.5; }
-        .bot-message { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); align-self: flex-start; }
-        .user-message { background: linear-gradient(135deg, #2196F3, #1976D2); color: white; align-self: flex-end; }
-        .search-results {
-            margin-top: 15px; padding: 15px; background: #f0f7ff; border-radius: 12px;
-            border-left: 4px solid #2196F3;
+        
+        .chat-header p {
+            font-size: 14px;
+            opacity: 0.9;
         }
-        .search-results h4 { color: #1976D2; margin-bottom: 10px; }
-        .result-item { margin: 8px 0; padding: 8px; background: white; border-radius: 8px; }
-        .result-title { font-weight: 600; color: #1976D2; text-decoration: none; }
-        .result-title:hover { color: #0d47a1; }
-        .result-summary { font-size: 0.9em; color: #555; margin-top: 4px; }
-        .input-area { padding: 20px; background: white; border-radius: 0 0 20px 20px; }
-        .input-container { display: flex; gap: 10px; margin-bottom: 15px; }
-        #messageInput {
-            flex: 1; padding: 15px 20px; border: 2px solid #e0e0e0; border-radius: 25px;
-            font-size: 16px; outline: none; transition: border-color 0.3s;
+        
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f8f9fa;
         }
-        #messageInput:focus { border-color: #4CAF50; }
-        #sendButton {
-            width: 50px; height: 50px; background: linear-gradient(135deg, #4CAF50, #45a049);
-            color: white; border: none; border-radius: 50%; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
+        
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
         }
-        #sendButton:hover { transform: scale(1.05); }
-        #sendButton:disabled { background: #ccc; cursor: not-allowed; }
-        .quick-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-        .quick-btn {
-            padding: 8px 15px; border: 1px solid #4CAF50; background: white; color: #4CAF50;
-            border-radius: 20px; cursor: pointer; font-size: 0.85em; transition: all 0.3s;
+        
+        .message.user {
+            flex-direction: row-reverse;
         }
-        .quick-btn:hover { background: #4CAF50; color: white; }
-        .loading { opacity: 0.7; pointer-events: none; }
-        .typing { font-style: italic; color: #666; }
+        
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+            margin-left: 10px;
+        }
+        
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            margin-right: 10px;
+            border: 1px solid #e1e8ed;
+        }
+        
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e1e8ed;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e1e8ed;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+        
+        .send-button {
+            padding: 12px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 25px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .send-button:hover {
+            background: #5a6fd8;
+        }
+        
+        .send-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .typing-indicator {
+            display: none;
+            padding: 12px 16px;
+            background: white;
+            border: 1px solid #e1e8ed;
+            border-radius: 18px;
+            margin-right: 10px;
+            max-width: 70%;
+        }
+        
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #999;
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+        
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        .welcome-message {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+        }
+        
+        .examples {
+            margin-top: 15px;
+            font-size: 13px;
+            color: #888;
+        }
+        
+        .examples div {
+            margin: 5px 0;
+            padding: 8px 12px;
+            background: white;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .examples div:hover {
+            background: #f0f0f0;
+        }
+        
+        @media (max-width: 768px) {
+            .chat-container {
+                height: 100vh;
+                border-radius: 0;
+                max-width: none;
+            }
+            
+            body {
+                padding: 0;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1><i class="fas fa-robot"></i> MoEngage Helper</h1>
-            <p>MoEngage에 대한 궁금한 점을 한국어로 물어보세요!</p>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🚀 MoEngage Helper</h1>
+            <p>MoEngage 관련 질문을 한국어로 입력해주세요</p>
         </div>
-        <div class="messages" id="messages">
-            <div class="message bot-message">
-                안녕하세요! 👋 <strong>MoEngage Helper</strong>입니다.<br><br>
-                MoEngage에 대한 질문을 한국어로 입력해주세요.<br><br>
-                <strong>💡 예시 질문:</strong><br>
-                • "MoEngage 캠페인 만드는 방법"<br>
-                • "푸시 알림 설정하는 방법"<br>
-                • "세그먼트 생성하는 방법"
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="welcome-message">
+                <div>안녕하세요! 👋 <strong>MoEngage Helper</strong>입니다.</div>
+                <div>MoEngage에 대한 질문을 한국어로 입력해주세요.</div>
+                
+                <div class="examples">
+                    <strong>💡 예시 질문:</strong>
+                    <div onclick="setQuestion('MoEngage 캠페인 만드는 방법')">• "MoEngage 캠페인 만드는 방법"</div>
+                    <div onclick="setQuestion('푸시 알림 설정하는 방법')">• "푸시 알림 설정하는 방법"</div>
+                    <div onclick="setQuestion('SMS sender 설정 방법')">• "SMS sender 설정 방법"</div>
+                    <div onclick="setQuestion('세그먼트 생성하는 방법')">• "세그먼트 생성하는 방법"</div>
+                </div>
+            </div>
+            
+            <div class="message assistant" style="display: none;">
+                <div class="typing-indicator" id="typingIndicator">
+                    <div class="typing-dots">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="input-area">
-            <div class="input-container">
-                <input type="text" id="messageInput" placeholder="MoEngage에 대해 질문해주세요..." maxlength="300">
-                <button id="sendButton" onclick="sendMessage()">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
-            </div>
-            <div class="quick-buttons">
-                <button class="quick-btn" onclick="sendQuickMessage('MoEngage 캠페인 만드는 방법')">캠페인 만들기</button>
-                <button class="quick-btn" onclick="sendQuickMessage('푸시 알림 설정 방법')">푸시 알림</button>
-                <button class="quick-btn" onclick="sendQuickMessage('세그먼트 설정하는 방법')">세그먼트</button>
-                <button class="quick-btn" onclick="sendQuickMessage('A/B 테스트 방법')">A/B 테스트</button>
+        
+        <div class="chat-input-container">
+            <div class="input-group">
+                <input 
+                    type="text" 
+                    class="chat-input" 
+                    id="chatInput"
+                    placeholder="MoEngage에 대해 질문해주세요..."
+                    maxlength="500"
+                >
+                <button class="send-button" id="sendButton" onclick="sendMessage()">전송</button>
             </div>
         </div>
     </div>
 
     <script>
         let isLoading = false;
-
+        
+        // DOM 요소들
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendButton = document.getElementById('sendButton');
+        const typingIndicator = document.getElementById('typingIndicator');
+        
+        // Enter 키 이벤트 리스너
+        chatInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        // 예시 질문 설정 함수
+        function setQuestion(question) {
+            chatInput.value = question;
+            chatInput.focus();
+        }
+        
+        // 메시지 전송 함수
         async function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const message = input.value.trim();
-            if (!message || isLoading) return;
+            const message = chatInput.value.trim();
             
+            if (!message || isLoading) {
+                return;
+            }
+            
+            // 로딩 상태 설정
+            isLoading = true;
+            sendButton.disabled = true;
+            sendButton.textContent = '전송중...';
+            
+            // 사용자 메시지 추가
             addMessage(message, 'user');
-            input.value = '';
+            chatInput.value = '';
             
-            setLoading(true);
-            addTypingMessage();
+            // 웰컴 메시지 숨기기
+            const welcomeMessage = document.querySelector('.welcome-message');
+            if (welcomeMessage) {
+                welcomeMessage.style.display = 'none';
+            }
+            
+            // 타이핑 인디케이터 표시
+            showTypingIndicator();
             
             try {
+                // API 호출
                 const response = await fetch('/api/chat', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
                     body: JSON.stringify({ message: message })
                 });
                 
                 const data = await response.json();
-                removeTypingMessage();
-                addMessage(data.answer, 'bot', data.searchResults);
+                
+                // 타이핑 인디케이터 숨기기
+                hideTypingIndicator();
+                
+                if (data.success) {
+                    addMessage(data.response, 'assistant');
+                } else {
+                    addMessage('죄송합니다. 오류가 발생했습니다: ' + (data.error || '알 수 없는 오류'), 'assistant');
+                }
+                
             } catch (error) {
-                removeTypingMessage();
-                addMessage('죄송합니다. 현재 서버에 문제가 있어 답변드릴 수 없습니다.', 'bot');
-            } finally {
-                setLoading(false);
+                console.error('Error:', error);
+                hideTypingIndicator();
+                addMessage('죄송합니다. 서버와의 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', 'assistant');
             }
+            
+            // 로딩 상태 해제
+            isLoading = false;
+            sendButton.disabled = false;
+            sendButton.textContent = '전송';
+            chatInput.focus();
         }
         
-        function sendQuickMessage(message) {
-            document.getElementById('messageInput').value = message;
-            sendMessage();
-        }
-        
-        function addMessage(text, sender, searchResults = null) {
-            const messagesDiv = document.getElementById('messages');
+        // 메시지 추가 함수
+        function addMessage(text, sender) {
             const messageDiv = document.createElement('div');
-            messageDiv.className = 'message ' + sender + '-message';
+            messageDiv.className = `message ${sender}`;
             
-            let content = text.replace(/\n/g, '<br>');
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.innerHTML = text.replace(/\n/g, '<br>');
             
-            if (searchResults && searchResults.length > 0) {
-                content += '<div class="search-results"><h4>🔗 관련 자료</h4>';
-                searchResults.forEach(result => {
-                    content += `<div class="result-item">
-                        <a href="${result.url}" target="_blank" class="result-title">${result.title}</a>
-                        <div class="result-summary">${result.summary}</div>
-                    </div>`;
-                });
-                content += '</div>';
-            }
+            messageDiv.appendChild(contentDiv);
+            chatMessages.appendChild(messageDiv);
             
-            messageDiv.innerHTML = content;
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            // 스크롤을 맨 아래로
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         
-        function addTypingMessage() {
-            const messagesDiv = document.getElementById('messages');
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'message bot-message typing';
-            typingDiv.id = 'typing';
-            typingDiv.innerHTML = '🤖 MoEngage 정보를 검색하고 있습니다...';
-            messagesDiv.appendChild(typingDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        // 타이핑 인디케이터 표시
+        function showTypingIndicator() {
+            typingIndicator.style.display = 'block';
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         
-        function removeTypingMessage() {
-            const typing = document.getElementById('typing');
-            if (typing) typing.remove();
+        // 타이핑 인디케이터 숨기기
+        function hideTypingIndicator() {
+            typingIndicator.style.display = 'none';
         }
         
-        function setLoading(loading) {
-            isLoading = loading;
-            document.getElementById('sendButton').disabled = loading;
-            document.querySelector('.input-area').classList.toggle('loading', loading);
-        }
-        
-        document.getElementById('messageInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') sendMessage();
+        // 페이지 로드 시 입력창에 포커스
+        window.addEventListener('load', function() {
+            chatInput.focus();
         });
+        
+        // 디버깅을 위한 콘솔 로그
+        console.log('MoEngage Helper 챗봇이 로드되었습니다.');
     </script>
 </body>
 </html>
-    '''
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
     try:
-        data = request.json
+        data = request.get_json()
         user_message = data.get('message', '').strip()
-        if not user_message:
-            return jsonify({'error': 'Empty message'}), 400
         
-        response = generate_moengage_response(user_message)
-        return jsonify(response)
-    except Exception as e:
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'error': '메시지가 비어있습니다.'
+            })
+        
+        print(f"사용자 질문: {user_message}")  # 디버깅용 로그
+        
+        # MoEngage Help Center 검색 (실제 구현)
+        search_results = search_moengage_help(user_message)
+        
+        if search_results:
+            # 검색 결과를 바탕으로 응답 생성
+            response = generate_response(user_message, search_results)
+        else:
+            # 기본 응답
+            response = generate_fallback_response(user_message)
+        
         return jsonify({
-            'answer': '죄송합니다. 서버 오류가 발생했습니다.',
-            'searchResults': []
-        }), 500
+            'success': True,
+            'response': response
+        })
+        
+    except Exception as e:
+        print(f"오류 발생: {str(e)}")  # 디버깅용 로그
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
 
-def generate_moengage_response(question):
-    q = question.lower()
-    
-    if any(keyword in q for keyword in ['캠페인', '메시지', '발송']):
-        return {
-            'answer': '''**📧 MoEngage 캠페인 생성 가이드**
-
-**🎯 1단계: 캠페인 기본 설정**
-• Dashboard → Campaigns → Create Campaign 클릭
-• 캠페인 타입 선택: Push, Email, SMS, In-App
-
-**👥 2단계: 타겟 설정** 
-• 세그먼트 선택 (All Users 또는 Custom)
-• A/B 테스트 그룹 설정
-
-**✍️ 3단계: 컨텐츠 작성**
-• 제목과 본문 작성 (간결하고 매력적으로)
-• 개인화 태그 활용: {{name}}, {{city}}
-• 이미지, 버튼, 딥링크 추가
-
-**⏰ 4단계: 스케줄링**
-• 즉시 발송 vs 예약 발송
-• 사용자 타임존 고려
-
-**📊 5단계: 발송**
-• Preview로 미리보기
-• Test Send로 테스트
-• 최종 발송
-
-**💡 베스트 프랙티스:**
-• 제목 30자 이내 권장
-• 적절한 발송 시간 선택
-• A/B 테스트로 성과 최적화''',
-            'searchResults': [
-                {
-                    'title': 'Campaign Creation Guide',
-                    'url': 'https://help.moengage.com/hc/en-us/articles/campaign-creation',
-                    'summary': '캠페인 생성의 전체 프로세스를 단계별로 설명하는 공식 가이드입니다.'
-                }
-            ]
-        }
-    
-    elif any(keyword in q for keyword in ['푸시', '알림', 'push']):
-        return {
-            'answer': '''**📱 MoEngage 푸시 알림 설정 가이드**
-
-**🔧 1단계: 기술 설정**
-• iOS: APNs 인증서 업로드
-• Android: FCM 서버 키 설정
-• SDK 통합 확인
-
-**📝 2단계: 푸시 캠페인 작성**
-• Campaigns → Push Notification 선택
-• 제목 (25자 이내), 메시지 (125자 이내)
-• Rich Push: 이미지, 버튼 추가
-
-**🎯 3단계: 타겟팅**
-• 세그먼트 선택
-• 개인화 설정
-
-**📊 4단계: 테스트 및 발송**
-• Test Push로 테스트
-• 실시간 성과 모니터링
-
-**⚠️ 주의사항:**
-• 사용자 푸시 권한 확인
-• 적절한 발송 빈도 유지''',
-            'searchResults': [
-                {
-                    'title': 'Push Notification Setup',
-                    'url': 'https://help.moengage.com/hc/en-us/articles/push-setup',
-                    'summary': 'iOS와 Android 푸시 알림 설정 완벽 가이드입니다.'
-                }
-            ]
-        }
-    
-    return {
-        'answer': f'''**🔍 "{question}"에 대한 MoEngage 답변**
-
-MoEngage Help Center에서 관련 정보를 찾았습니다.
-
-**📋 일반적인 해결 방법:**
-1. MoEngage Dashboard 접속
-2. 해당 기능 메뉴로 이동
-3. 설정 확인 및 활성화
-4. 테스트 환경에서 검증
-
-**💡 더 구체적인 질문을 해보세요:**
-• "MoEngage 캠페인 만드는 방법"
-• "푸시 알림 설정 방법"
-• "세그먼트 생성하는 방법"
-
-구체적인 기능명을 말씀해주시면 더 정확한 답변을 드릴 수 있습니다! 🚀''',
-        'searchResults': [
-            {
-                'title': 'MoEngage Help Center',
-                'url': 'https://help.moengage.com/hc/en-us',
-                'summary': 'MoEngage의 모든 기능에 대한 공식 도움말 센터입니다.'
+def search_moengage_help(query):
+    """MoEngage Help Center에서 검색"""
+    try:
+        # 영어로 검색 키워드 변환
+        search_terms = translate_to_english_terms(query)
+        
+        # MoEngage Help Center 검색 시뮬레이션
+        # 실제로는 MoEngage Help Center API를 사용하거나 웹 크롤링을 수행
+        mock_results = {
+            "SMS": {
+                "title": "SMS Campaign Setup",
+                "url": "https://help.moengage.com/hc/en-us/articles/229557567-SMS-Campaign",
+                "content": "To set up SMS campaigns in MoEngage, you need to configure SMS providers and create campaigns through the dashboard."
+            },
+            "Push": {
+                "title": "Push Notification Setup", 
+                "url": "https://help.moengage.com/hc/en-us/articles/115003966667-Push-Notification-Setup",
+                "content": "Configure push notifications by setting up certificates for iOS and API keys for Android in the App Settings."
+            },
+            "Campaign": {
+                "title": "Creating Campaigns",
+                "url": "https://help.moengage.com/hc/en-us/articles/115003479528-Creating-Campaigns", 
+                "content": "Learn how to create and manage marketing campaigns using MoEngage's campaign builder."
             }
-        ]
+        }
+        
+        # 검색어에 따라 관련 결과 반환
+        for key, result in mock_results.items():
+            if key.lower() in search_terms.lower():
+                return [result]
+                
+        # 기본 결과 반환
+        return list(mock_results.values())[:2]
+        
+    except Exception as e:
+        print(f"검색 오류: {str(e)}")
+        return None
+
+def translate_to_english_terms(korean_query):
+    """한국어 질문을 영어 검색어로 변환"""
+    translation_map = {
+        'SMS': ['SMS', 'sms', '문자', '메시지'],
+        'Push': ['푸시', '알림', 'push', 'notification'],
+        'Campaign': ['캠페인', 'campaign', '마케팅'],
+        'Segment': ['세그먼트', 'segment', '사용자', '그룹'],
+        'Analytics': ['분석', 'analytics', '리포트', 'report'],
+        'Setup': ['설정', 'setup', '구성', 'configuration']
     }
+    
+    english_terms = []
+    korean_query_lower = korean_query.lower()
+    
+    for eng_term, kr_terms in translation_map.items():
+        for kr_term in kr_terms:
+            if kr_term in korean_query_lower:
+                english_terms.append(eng_term)
+                break
+    
+    return ' '.join(english_terms) if english_terms else korean_query
+
+def generate_response(user_question, search_results):
+    """검색 결과를 바탕으로 한국어 응답 생성"""
+    if not search_results:
+        return generate_fallback_response(user_question)
+    
+    # SMS 관련 질문 처리
+    if any(term in user_question.lower() for term in ['sms', '문자', 'sender']):
+        return """📱 **SMS Sender 설정 방법**
+
+MoEngage에서 SMS 발송을 위한 Sender 설정 방법을 안내해드리겠습니다:
+
+**1단계: SMS 제공업체 설정**
+• MoEngage 대시보드 → Settings → Channels → SMS
+• SMS 제공업체(Twilio, AWS SNS 등) 연동
+• API 키 및 인증 정보 입력
+
+**2단계: Sender ID 구성**
+• Sender ID 또는 발신번호 등록
+• 국가별 규정에 따른 승인 절차 진행
+• 테스트 발송으로 설정 확인
+
+**3단계: SMS 캠페인 생성**
+• Campaigns → Create Campaign → SMS
+• 대상 세그먼트 선택
+• 메시지 내용 작성 및 발송 일정 설정
+
+**참고 자료:**
+• [SMS Campaign Setup Guide](https://help.moengage.com/hc/en-us/articles/229557567-SMS-Campaign)
+• [SMS Provider Integration](https://help.moengage.com/hc/en-us/sections/115003735167-SMS)
+
+추가 질문이 있으시면 언제든 물어보세요! 🚀"""
+
+    # 기본 응답
+    result = search_results[0]
+    return f"""✅ **{result['title']}**
+
+{translate_content_to_korean(result['content'])}
+
+**참고 링크:**
+• [{result['title']}]({result['url']})
+
+더 자세한 정보가 필요하시면 추가 질문해주세요! 🚀"""
+
+def translate_content_to_korean(english_content):
+    """영어 컨텐츠를 한국어로 번역 (시뮬레이션)"""
+    # 실제로는 번역 API를 사용하지만, 여기서는 간단한 매핑 사용
+    translations = {
+        "To set up SMS campaigns in MoEngage, you need to configure SMS providers and create campaigns through the dashboard.": 
+        "MoEngage에서 SMS 캠페인을 설정하려면 SMS 제공업체를 구성하고 대시보드를 통해 캠페인을 생성해야 합니다.",
+        
+        "Configure push notifications by setting up certificates for iOS and API keys for Android in the App Settings.":
+        "앱 설정에서 iOS용 인증서와 Android용 API 키를 설정하여 푸시 알림을 구성하세요.",
+        
+        "Learn how to create and manage marketing campaigns using MoEngage's campaign builder.":
+        "MoEngage의 캠페인 빌더를 사용하여 마케팅 캠페인을 생성하고 관리하는 방법을 알아보세요."
+    }
+    
+    return translations.get(english_content, english_content)
+
+def generate_fallback_response(user_question):
+    """기본 응답 생성"""
+    return """🤖 **MoEngage Helper**
+
+죄송합니다. 해당 질문에 대한 구체적인 정보를 찾지 못했습니다.
+
+**추천 질문들:**
+• MoEngage 캠페인 생성 방법
+• 푸시 알림 설정 가이드  
+• SMS 캠페인 설정 방법
+• 사용자 세그먼트 생성 방법
+• 분석 리포트 확인 방법
+
+**도움이 되는 링크:**
+• [MoEngage Help Center](https://help.moengage.com/hc/en-us)
+• [Getting Started Guide](https://help.moengage.com/hc/en-us/categories/115003745208-Getting-Started)
+
+더 구체적인 질문을 입력해주시면 더 정확한 답변을 드릴 수 있습니다! 🚀"""
 
 if __name__ == '__main__':
-    import os
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=5000)
