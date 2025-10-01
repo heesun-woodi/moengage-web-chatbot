@@ -4,14 +4,14 @@ import json
 
 app = Flask(__name__)
 
-# HTML 템플릿
+# HTML 템플릿 (디버깅 강화 버전)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MoEngage Helper</title>
+    <title>MoEngage Helper - Debug</title>
     <style>
         * {
             margin: 0;
@@ -56,6 +56,14 @@ HTML_TEMPLATE = """
         .chat-header p {
             font-size: 14px;
             opacity: 0.9;
+        }
+        
+        .debug-info {
+            background: #ff6b6b;
+            color: white;
+            padding: 10px;
+            font-size: 12px;
+            text-align: center;
         }
         
         .chat-messages {
@@ -213,8 +221,12 @@ HTML_TEMPLATE = """
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            <h1>🚀 MoEngage Helper</h1>
+            <h1>🚀 MoEngage Helper - Debug Mode</h1>
             <p>MoEngage 관련 질문을 한국어로 입력해주세요</p>
+        </div>
+        
+        <div class="debug-info" id="debugInfo">
+            디버그 모드: JavaScript 로딩 중...
         </div>
         
         <div class="chat-messages" id="chatMessages">
@@ -251,39 +263,104 @@ HTML_TEMPLATE = """
                     placeholder="MoEngage에 대해 질문해주세요..."
                     maxlength="500"
                 >
-                <button class="send-button" id="sendButton" onclick="sendMessage()">전송</button>
+                <button class="send-button" id="sendButton">전송</button>
             </div>
         </div>
     </div>
 
     <script>
+        console.log('🚀 JavaScript 시작!');
+        
+        // 디버깅 함수
+        function updateDebugInfo(message) {
+            const debugInfo = document.getElementById('debugInfo');
+            if (debugInfo) {
+                debugInfo.textContent = `디버그: ${message}`;
+                console.log(`디버그: ${message}`);
+            }
+        }
+        
         let isLoading = false;
         
         // DOM 요소들
-        const chatMessages = document.getElementById('chatMessages');
-        const chatInput = document.getElementById('chatInput');
-        const sendButton = document.getElementById('sendButton');
-        const typingIndicator = document.getElementById('typingIndicator');
+        let chatMessages, chatInput, sendButton, typingIndicator;
         
-        // Enter 키 이벤트 리스너
-        chatInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
+        // DOM 로딩 완료 후 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🎯 DOM 로딩 완료!');
+            updateDebugInfo('DOM 로딩 완료');
+            
+            // DOM 요소 가져오기
+            chatMessages = document.getElementById('chatMessages');
+            chatInput = document.getElementById('chatInput');
+            sendButton = document.getElementById('sendButton');
+            typingIndicator = document.getElementById('typingIndicator');
+            
+            if (!chatMessages || !chatInput || !sendButton) {
+                console.error('❌ 필수 DOM 요소를 찾을 수 없습니다!');
+                updateDebugInfo('오류: DOM 요소 누락');
+                return;
+            }
+            
+            updateDebugInfo('모든 DOM 요소 확인됨');
+            
+            // Enter 키 이벤트 리스너
+            chatInput.addEventListener('keypress', function(e) {
+                console.log('⌨️ 키 입력:', e.key);
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    console.log('🔥 Enter 키로 전송 시도');
+                    updateDebugInfo('Enter 키 감지');
+                    sendMessage();
+                }
+            });
+            
+            // 버튼 클릭 이벤트 리스너
+            sendButton.addEventListener('click', function(e) {
+                console.log('🖱️ 전송 버튼 클릭');
+                updateDebugInfo('전송 버튼 클릭');
                 e.preventDefault();
                 sendMessage();
-            }
+            });
+            
+            // 입력창에 포커스
+            chatInput.focus();
+            updateDebugInfo('초기화 완료 - 테스트 가능');
         });
         
         // 예시 질문 설정 함수
         function setQuestion(question) {
-            chatInput.value = question;
-            chatInput.focus();
+            console.log('📝 예시 질문 설정:', question);
+            if (chatInput) {
+                chatInput.value = question;
+                chatInput.focus();
+                updateDebugInfo(`질문 설정: ${question.substring(0, 20)}...`);
+            }
         }
         
         // 메시지 전송 함수
         async function sendMessage() {
-            const message = chatInput.value.trim();
+            console.log('🚀 sendMessage 함수 호출');
+            updateDebugInfo('메시지 전송 시작');
             
-            if (!message || isLoading) {
+            if (!chatInput) {
+                console.error('❌ chatInput이 없습니다!');
+                updateDebugInfo('오류: 입력창 없음');
+                return;
+            }
+            
+            const message = chatInput.value.trim();
+            console.log('📨 전송할 메시지:', message);
+            
+            if (!message) {
+                console.log('⚠️ 빈 메시지');
+                updateDebugInfo('경고: 빈 메시지');
+                return;
+            }
+            
+            if (isLoading) {
+                console.log('⚠️ 이미 로딩 중');
+                updateDebugInfo('경고: 이미 처리 중');
                 return;
             }
             
@@ -291,6 +368,7 @@ HTML_TEMPLATE = """
             isLoading = true;
             sendButton.disabled = true;
             sendButton.textContent = '전송중...';
+            updateDebugInfo('API 호출 중...');
             
             // 사용자 메시지 추가
             addMessage(message, 'user');
@@ -306,6 +384,8 @@ HTML_TEMPLATE = """
             showTypingIndicator();
             
             try {
+                console.log('🌐 API 호출 시작');
+                
                 // API 호출
                 const response = await fetch('/api/chat', {
                     method: 'POST',
@@ -315,21 +395,31 @@ HTML_TEMPLATE = """
                     body: JSON.stringify({ message: message })
                 });
                 
+                console.log('📡 응답 상태:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const data = await response.json();
+                console.log('✅ 응답 데이터:', data);
                 
                 // 타이핑 인디케이터 숨기기
                 hideTypingIndicator();
                 
                 if (data.success) {
                     addMessage(data.response, 'assistant');
+                    updateDebugInfo('응답 성공');
                 } else {
                     addMessage('죄송합니다. 오류가 발생했습니다: ' + (data.error || '알 수 없는 오류'), 'assistant');
+                    updateDebugInfo('응답 오류: ' + data.error);
                 }
                 
             } catch (error) {
-                console.error('Error:', error);
+                console.error('❌ 오류 발생:', error);
                 hideTypingIndicator();
-                addMessage('죄송합니다. 서버와의 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', 'assistant');
+                addMessage('죄송합니다. 서버와의 통신 중 오류가 발생했습니다: ' + error.message, 'assistant');
+                updateDebugInfo('네트워크 오류: ' + error.message);
             }
             
             // 로딩 상태 해제
@@ -337,10 +427,19 @@ HTML_TEMPLATE = """
             sendButton.disabled = false;
             sendButton.textContent = '전송';
             chatInput.focus();
+            
+            console.log('✅ sendMessage 완료');
         }
         
         // 메시지 추가 함수
         function addMessage(text, sender) {
+            console.log('💬 메시지 추가:', sender, text.substring(0, 50) + '...');
+            
+            if (!chatMessages) {
+                console.error('❌ chatMessages가 없습니다!');
+                return;
+            }
+            
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}`;
             
@@ -357,22 +456,32 @@ HTML_TEMPLATE = """
         
         // 타이핑 인디케이터 표시
         function showTypingIndicator() {
-            typingIndicator.style.display = 'block';
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            if (typingIndicator) {
+                typingIndicator.style.display = 'block';
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
         }
         
         // 타이핑 인디케이터 숨기기
         function hideTypingIndicator() {
-            typingIndicator.style.display = 'none';
+            if (typingIndicator) {
+                typingIndicator.style.display = 'none';
+            }
         }
         
-        // 페이지 로드 시 입력창에 포커스
-        window.addEventListener('load', function() {
-            chatInput.focus();
+        // 전역 오류 핸들러
+        window.addEventListener('error', function(e) {
+            console.error('🚨 전역 오류:', e.error);
+            updateDebugInfo('전역 오류: ' + e.message);
         });
         
-        // 디버깅을 위한 콘솔 로그
-        console.log('MoEngage Helper 챗봇이 로드되었습니다.');
+        // 미처리 Promise 거부 핸들러
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('🚨 미처리 Promise 거부:', e.reason);
+            updateDebugInfo('Promise 오류: ' + e.reason);
+        });
+        
+        console.log('🎉 JavaScript 로딩 완료!');
     </script>
 </body>
 </html>
@@ -425,7 +534,6 @@ def search_moengage_help(query):
         search_terms = translate_to_english_terms(query)
         
         # MoEngage Help Center 검색 시뮬레이션
-        # 실제로는 MoEngage Help Center API를 사용하거나 웹 크롤링을 수행
         mock_results = {
             "SMS": {
                 "title": "SMS Campaign Setup",
@@ -523,7 +631,6 @@ MoEngage에서 SMS 발송을 위한 Sender 설정 방법을 안내해드리겠�
 
 def translate_content_to_korean(english_content):
     """영어 컨텐츠를 한국어로 번역 (시뮬레이션)"""
-    # 실제로는 번역 API를 사용하지만, 여기서는 간단한 매핑 사용
     translations = {
         "To set up SMS campaigns in MoEngage, you need to configure SMS providers and create campaigns through the dashboard.": 
         "MoEngage에서 SMS 캠페인을 설정하려면 SMS 제공업체를 구성하고 대시보드를 통해 캠페인을 생성해야 합니다.",
