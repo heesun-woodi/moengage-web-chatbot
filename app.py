@@ -1,17 +1,17 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, redirect, url_for
 import requests
 import json
 
 app = Flask(__name__)
 
-# HTML 템플릿 (매우 간단한 버전)
+# HTML 템플릿 (JavaScript 완전 제거, Form 기반)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MoEngage Helper - Simple</title>
+    <title>MoEngage Helper - No JavaScript</title>
     <style>
         * {
             margin: 0;
@@ -35,7 +35,7 @@ HTML_TEMPLATE = """
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             width: 100%;
             max-width: 800px;
-            height: 600px;
+            min-height: 600px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -48,8 +48,8 @@ HTML_TEMPLATE = """
             text-align: center;
         }
         
-        .debug-bar {
-            background: #ff4757;
+        .status-bar {
+            background: #2ed573;
             color: white;
             padding: 10px;
             text-align: center;
@@ -80,6 +80,7 @@ HTML_TEMPLATE = """
             border-radius: 18px;
             font-size: 14px;
             line-height: 1.4;
+            white-space: pre-line;
         }
         
         .message.user .message-content {
@@ -101,7 +102,7 @@ HTML_TEMPLATE = """
             border-top: 1px solid #e1e8ed;
         }
         
-        .input-group {
+        .input-form {
             display: flex;
             gap: 10px;
         }
@@ -115,6 +116,10 @@ HTML_TEMPLATE = """
             outline: none;
         }
         
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+        
         .send-button {
             padding: 12px 20px;
             background: #667eea;
@@ -123,15 +128,11 @@ HTML_TEMPLATE = """
             border-radius: 25px;
             font-size: 14px;
             cursor: pointer;
+            transition: background-color 0.3s;
         }
         
         .send-button:hover {
             background: #5a6fd8;
-        }
-        
-        .send-button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
         }
         
         .welcome-message {
@@ -146,264 +147,172 @@ HTML_TEMPLATE = """
             color: #888;
         }
         
-        .examples div {
+        .example-form {
+            display: inline-block;
+            margin: 2px;
+        }
+        
+        .example-button {
             margin: 5px 0;
             padding: 8px 12px;
             background: white;
+            border: 1px solid #ddd;
             border-radius: 12px;
             cursor: pointer;
+            transition: background-color 0.3s;
+            font-size: 13px;
         }
         
-        .examples div:hover {
+        .example-button:hover {
             background: #f0f0f0;
+        }
+        
+        .clear-form {
+            margin-top: 10px;
+        }
+        
+        .clear-button {
+            padding: 8px 16px;
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .clear-button:hover {
+            background: #ff5252;
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            <h1>🚀 MoEngage Helper - Simple Version</h1>
+            <h1>🚀 MoEngage Helper - No JavaScript Version</h1>
             <p>MoEngage 관련 질문을 한국어로 입력해주세요</p>
         </div>
         
-        <div class="debug-bar" id="debugBar">
-            상태: 페이지 로딩 완료, JavaScript 테스트 중...
+        <div class="status-bar">
+            ✅ 상태: JavaScript 없이 정상 작동 중 - Form 기반 채팅
         </div>
         
-        <div class="chat-messages" id="chatMessages">
+        <div class="chat-messages">
+            {% for msg in messages %}
+            <div class="message {{ msg.sender }}">
+                <div class="message-content">{{ msg.content }}</div>
+            </div>
+            {% endfor %}
+            
+            {% if not messages %}
             <div class="welcome-message">
                 <div>안녕하세요! 👋 <strong>MoEngage Helper</strong>입니다.</div>
                 <div>MoEngage에 대한 질문을 한국어로 입력해주세요.</div>
                 
                 <div class="examples">
-                    <strong>💡 예시 질문:</strong>
-                    <div onclick="setQuestion('MoEngage 캠페인 만드는 방법')">• "MoEngage 캠페인 만드는 방법"</div>
-                    <div onclick="setQuestion('푸시 알림 설정하는 방법')">• "푸시 알림 설정하는 방법"</div>
-                    <div onclick="setQuestion('SMS sender 설정 방법')">• "SMS sender 설정 방법"</div>
-                    <div onclick="setQuestion('세그먼트 생성하는 방법')">• "세그먼트 생성하는 방법"</div>
+                    <strong>💡 예시 질문 (클릭하면 자동 입력):</strong><br>
+                    
+                    <form class="example-form" method="POST" action="/ask">
+                        <input type="hidden" name="message" value="MoEngage 캠페인 만드는 방법">
+                        <button type="submit" class="example-button">• "MoEngage 캠페인 만드는 방법"</button>
+                    </form>
+                    
+                    <form class="example-form" method="POST" action="/ask">
+                        <input type="hidden" name="message" value="푸시 알림 설정하는 방법">
+                        <button type="submit" class="example-button">• "푸시 알림 설정하는 방법"</button>
+                    </form>
+                    
+                    <form class="example-form" method="POST" action="/ask">
+                        <input type="hidden" name="message" value="SMS sender 설정 방법">
+                        <button type="submit" class="example-button">• "SMS sender 설정 방법"</button>
+                    </form>
+                    
+                    <form class="example-form" method="POST" action="/ask">
+                        <input type="hidden" name="message" value="세그먼트 생성하는 방법">
+                        <button type="submit" class="example-button">• "세그먼트 생성하는 방법"</button>
+                    </form>
                 </div>
             </div>
+            {% endif %}
         </div>
         
         <div class="chat-input-container">
-            <div class="input-group">
+            <form class="input-form" method="POST" action="/ask">
                 <input 
                     type="text" 
                     class="chat-input" 
-                    id="chatInput"
+                    name="message"
                     placeholder="MoEngage에 대해 질문해주세요..."
                     maxlength="500"
-                    onkeypress="handleKeyPress(event)"
+                    required
+                    value="{{ user_input or '' }}"
                 >
-                <button class="send-button" id="sendButton" onclick="sendMessage()">전송</button>
-            </div>
+                <button type="submit" class="send-button">전송</button>
+            </form>
+            
+            {% if messages %}
+            <form class="clear-form" method="POST" action="/clear">
+                <button type="submit" class="clear-button">대화 내역 지우기</button>
+            </form>
+            {% endif %}
         </div>
     </div>
-
-    <script>
-        // 전역 변수
-        var isLoading = false;
-        var debugBar = null;
-        var chatMessages = null;
-        var chatInput = null;
-        var sendButton = null;
-        
-        // 디버그 메시지 업데이트
-        function updateDebug(message) {
-            console.log('[DEBUG] ' + message);
-            if (debugBar) {
-                debugBar.innerHTML = '상태: ' + message;
-            }
-        }
-        
-        // 페이지 로드 완료 시 실행
-        function initializePage() {
-            updateDebug('DOM 요소 찾는 중...');
-            
-            // DOM 요소 가져오기
-            debugBar = document.getElementById('debugBar');
-            chatMessages = document.getElementById('chatMessages');
-            chatInput = document.getElementById('chatInput');
-            sendButton = document.getElementById('sendButton');
-            
-            if (!debugBar || !chatMessages || !chatInput || !sendButton) {
-                updateDebug('오류: 필수 DOM 요소를 찾을 수 없음');
-                alert('페이지 로딩 오류가 발생했습니다. 페이지를 새로고침해주세요.');
-                return;
-            }
-            
-            updateDebug('초기화 완료 - 테스트 가능');
-            
-            // 입력창에 포커스
-            chatInput.focus();
-        }
-        
-        // 키 입력 처리
-        function handleKeyPress(event) {
-            updateDebug('키 입력 감지: ' + event.key);
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                updateDebug('Enter 키로 전송 시도');
-                sendMessage();
-            }
-        }
-        
-        // 예시 질문 설정
-        function setQuestion(question) {
-            updateDebug('예시 질문 클릭: ' + question);
-            if (chatInput) {
-                chatInput.value = question;
-                chatInput.focus();
-            }
-        }
-        
-        // 메시지 전송 (XMLHttpRequest 사용)
-        function sendMessage() {
-            updateDebug('sendMessage 함수 호출됨');
-            
-            if (!chatInput) {
-                updateDebug('오류: chatInput이 없음');
-                return;
-            }
-            
-            var message = chatInput.value.trim();
-            updateDebug('전송할 메시지: ' + message);
-            
-            if (!message) {
-                updateDebug('경고: 빈 메시지');
-                return;
-            }
-            
-            if (isLoading) {
-                updateDebug('경고: 이미 처리 중');
-                return;
-            }
-            
-            // 로딩 상태 설정
-            isLoading = true;
-            sendButton.disabled = true;
-            sendButton.innerHTML = '전송중...';
-            updateDebug('로딩 상태 설정됨');
-            
-            // 사용자 메시지 추가
-            addMessage(message, 'user');
-            chatInput.value = '';
-            
-            // 웰컴 메시지 숨기기
-            var welcomeMessage = document.querySelector('.welcome-message');
-            if (welcomeMessage) {
-                welcomeMessage.style.display = 'none';
-            }
-            
-            // XMLHttpRequest로 API 호출
-            updateDebug('API 호출 시작');
-            var xhr = new XMLHttpRequest();
-            
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 4) {
-                    updateDebug('API 응답 받음, 상태: ' + xhr.status);
-                    
-                    // 로딩 상태 해제
-                    isLoading = false;
-                    sendButton.disabled = false;
-                    sendButton.innerHTML = '전송';
-                    
-                    if (xhr.status === 200) {
-                        try {
-                            var data = JSON.parse(xhr.responseText);
-                            updateDebug('응답 파싱 성공');
-                            
-                            if (data.success) {
-                                addMessage(data.response, 'assistant');
-                                updateDebug('응답 표시 완료');
-                            } else {
-                                addMessage('죄송합니다. 오류가 발생했습니다: ' + (data.error || '알 수 없는 오류'), 'assistant');
-                                updateDebug('서버 오류: ' + data.error);
-                            }
-                        } catch (e) {
-                            updateDebug('JSON 파싱 오류: ' + e.message);
-                            addMessage('응답 처리 중 오류가 발생했습니다.', 'assistant');
-                        }
-                    } else {
-                        updateDebug('HTTP 오류: ' + xhr.status);
-                        addMessage('서버와의 통신 중 오류가 발생했습니다. (HTTP ' + xhr.status + ')', 'assistant');
-                    }
-                    
-                    chatInput.focus();
-                }
-            };
-            
-            xhr.onerror = function() {
-                updateDebug('네트워크 오류 발생');
-                isLoading = false;
-                sendButton.disabled = false;
-                sendButton.innerHTML = '전송';
-                addMessage('네트워크 오류가 발생했습니다. 인터넷 연결을 확인해주세요.', 'assistant');
-                chatInput.focus();
-            };
-            
-            xhr.open('POST', '/api/chat', true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.send(JSON.stringify({ message: message }));
-        }
-        
-        // 메시지 추가
-        function addMessage(text, sender) {
-            updateDebug('메시지 추가: ' + sender);
-            
-            if (!chatMessages) {
-                updateDebug('오류: chatMessages가 없음');
-                return;
-            }
-            
-            var messageDiv = document.createElement('div');
-            messageDiv.className = 'message ' + sender;
-            
-            var contentDiv = document.createElement('div');
-            contentDiv.className = 'message-content';
-            contentDiv.innerHTML = text.replace(/\n/g, '<br>');
-            
-            messageDiv.appendChild(contentDiv);
-            chatMessages.appendChild(messageDiv);
-            
-            // 스크롤을 맨 아래로
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // 페이지 로드 시 초기화 (여러 방법으로 시도)
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializePage);
-        } else {
-            initializePage();
-        }
-        
-        // 윈도우 로드 이벤트도 추가 (backup)
-        window.onload = function() {
-            updateDebug('window.onload 이벤트 발생');
-            if (!debugBar) {
-                initializePage();
-            }
-        };
-        
-        // 전역 오류 처리
-        window.onerror = function(msg, url, line, col, error) {
-            updateDebug('전역 오류: ' + msg + ' (line: ' + line + ')');
-            console.error('JavaScript 오류:', msg, url, line, col, error);
-            return false;
-        };
-        
-        updateDebug('JavaScript 로딩 완료');
-    </script>
 </body>
 </html>
 """
 
+# 세션 데이터 저장 (실제 운영에서는 데이터베이스 사용)
+chat_sessions = {}
+
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML_TEMPLATE, messages=[], user_input="")
+
+@app.route('/ask', methods=['POST'])
+def ask():
+    user_message = request.form.get('message', '').strip()
+    
+    if not user_message:
+        return redirect(url_for('index'))
+    
+    # 기존 대화 내역 가져오기 (간단한 구현)
+    session_id = request.remote_addr  # IP를 세션 ID로 사용
+    if session_id not in chat_sessions:
+        chat_sessions[session_id] = []
+    
+    # 사용자 메시지 추가
+    chat_sessions[session_id].append({
+        'sender': 'user',
+        'content': user_message
+    })
+    
+    # AI 응답 생성
+    response = generate_response(user_message)
+    
+    # AI 응답 추가
+    chat_sessions[session_id].append({
+        'sender': 'assistant', 
+        'content': response
+    })
+    
+    # 대화 내역이 너무 길어지면 오래된 것 삭제
+    if len(chat_sessions[session_id]) > 20:
+        chat_sessions[session_id] = chat_sessions[session_id][-20:]
+    
+    return render_template_string(HTML_TEMPLATE, 
+                                messages=chat_sessions[session_id], 
+                                user_input="")
+
+@app.route('/clear', methods=['POST'])
+def clear():
+    session_id = request.remote_addr
+    if session_id in chat_sessions:
+        del chat_sessions[session_id]
+    return redirect(url_for('index'))
 
 @app.route('/api/chat', methods=['POST'])
-def chat():
+def chat_api():
+    """기존 API 호환성 유지"""
     try:
         data = request.get_json()
         user_message = data.get('message', '').strip()
@@ -414,99 +323,7 @@ def chat():
                 'error': '메시지가 비어있습니다.'
             })
         
-        print(f"사용자 질문: {user_message}")
-        
-        # SMS 관련 질문 처리
-        if any(term in user_message.lower() for term in ['sms', '문자', 'sender']):
-            response = """📱 **SMS Sender 설정 방법**
-
-MoEngage에서 SMS 발송을 위한 Sender 설정 방법을 안내해드리겠습니다:
-
-**1단계: SMS 제공업체 설정**
-• MoEngage 대시보드 → Settings → Channels → SMS
-• SMS 제공업체(Twilio, AWS SNS 등) 연동
-• API 키 및 인증 정보 입력
-
-**2단계: Sender ID 구성**
-• Sender ID 또는 발신번호 등록
-• 국가별 규정에 따른 승인 절차 진행
-• 테스트 발송으로 설정 확인
-
-**3단계: SMS 캠페인 생성**
-• Campaigns → Create Campaign → SMS
-• 대상 세그먼트 선택
-• 메시지 내용 작성 및 발송 일정 설정
-
-**참고 자료:**
-• [SMS Campaign Setup Guide](https://help.moengage.com/hc/en-us/articles/229557567-SMS-Campaign)
-• [SMS Provider Integration](https://help.moengage.com/hc/en-us/sections/115003735167-SMS)
-
-추가 질문이 있으시면 언제든 물어보세요! 🚀"""
-        
-        elif any(term in user_message.lower() for term in ['푸시', '알림', 'push']):
-            response = """📲 **푸시 알림 설정 방법**
-
-MoEngage에서 푸시 알림을 설정하는 방법을 안내해드리겠습니다:
-
-**1단계: 앱 설정**
-• MoEngage 대시보드 → Settings → App Settings
-• iOS: APNs 인증서 업로드
-• Android: FCM Server Key 입력
-
-**2단계: SDK 연동**
-• iOS/Android SDK 설치 및 초기화
-• 푸시 토큰 등록 코드 구현
-• 알림 권한 요청 설정
-
-**3단계: 푸시 캠페인 생성**
-• Campaigns → Create Campaign → Push
-• 메시지 내용 및 이미지 설정
-• 타겟 세그먼트 선택 및 발송 일정 설정
-
-더 자세한 정보가 필요하시면 추가 질문해주세요! 🚀"""
-        
-        elif any(term in user_message.lower() for term in ['캠페인', 'campaign']):
-            response = """🎯 **MoEngage 캠페인 생성 방법**
-
-MoEngage에서 마케팅 캠페인을 만드는 방법을 안내해드리겠습니다:
-
-**1단계: 캠페인 유형 선택**
-• Push 알림, SMS, 이메일, 인앱 메시지 중 선택
-• Campaigns → Create Campaign
-
-**2단계: 타겟 설정**
-• 사용자 세그먼트 선택
-• 개인화 조건 설정
-• A/B 테스트 그룹 구성 (선택사항)
-
-**3단계: 콘텐츠 작성**
-• 메시지 내용 작성
-• 이미지 및 버튼 추가
-• 딥링크 및 랜딩 페이지 설정
-
-**4단계: 발송 일정**
-• 즉시 발송 또는 예약 발송
-• 트리거 조건 설정 (이벤트 기반)
-
-더 구체적인 질문이 있으시면 언제든 물어보세요! 🚀"""
-        
-        else:
-            response = f"""🤖 **MoEngage Helper**
-
-"{user_message}"에 대한 질문을 받았습니다.
-
-**추천 질문들:**
-• MoEngage 캠페인 생성 방법
-• 푸시 알림 설정 가이드  
-• SMS 캠페인 설정 방법
-• 사용자 세그먼트 생성 방법
-• 분석 리포트 확인 방법
-
-**도움이 되는 링크:**
-• [MoEngage Help Center](https://help.moengage.com/hc/en-us)
-• [Getting Started Guide](https://help.moengage.com/hc/en-us/categories/115003745208-Getting-Started)
-
-더 구체적인 질문을 입력해주시면 더 정확한 답변을 드릴 수 있습니다! 🚀"""
+        response = generate_response(user_message)
         
         return jsonify({
             'success': True,
@@ -514,11 +331,143 @@ MoEngage에서 마케팅 캠페인을 만드는 방법을 안내해드리겠습�
         })
         
     except Exception as e:
-        print(f"오류 발생: {str(e)}")
         return jsonify({
             'success': False,
             'error': str(e)
         })
+
+def generate_response(user_message):
+    """사용자 메시지에 대한 응답 생성"""
+    user_message_lower = user_message.lower()
+    
+    if any(term in user_message_lower for term in ['sms', '문자', 'sender']):
+        return """📱 SMS Sender 설정 방법
+
+MoEngage에서 SMS 발송을 위한 Sender 설정 방법을 안내해드리겠습니다:
+
+1단계: SMS 제공업체 설정
+• MoEngage 대시보드 → Settings → Channels → SMS
+• SMS 제공업체(Twilio, AWS SNS 등) 연동
+• API 키 및 인증 정보 입력
+
+2단계: Sender ID 구성
+• Sender ID 또는 발신번호 등록
+• 국가별 규정에 따른 승인 절차 진행
+• 테스트 발송으로 설정 확인
+
+3단계: SMS 캠페인 생성
+• Campaigns → Create Campaign → SMS
+• 대상 세그먼트 선택
+• 메시지 내용 작성 및 발송 일정 설정
+
+참고 자료:
+• SMS Campaign Setup Guide: https://help.moengage.com/hc/en-us/articles/229557567-SMS-Campaign
+• SMS Provider Integration: https://help.moengage.com/hc/en-us/sections/115003735167-SMS
+
+추가 질문이 있으시면 언제든 물어보세요! 🚀"""
+    
+    elif any(term in user_message_lower for term in ['푸시', '알림', 'push']):
+        return """📲 푸시 알림 설정 방법
+
+MoEngage에서 푸시 알림을 설정하는 방법을 안내해드리겠습니다:
+
+1단계: 앱 설정
+• MoEngage 대시보드 → Settings → App Settings
+• iOS: APNs 인증서 업로드
+• Android: FCM Server Key 입력
+
+2단계: SDK 연동
+• iOS/Android SDK 설치 및 초기화
+• 푸시 토큰 등록 코드 구현
+• 알림 권한 요청 설정
+
+3단계: 푸시 캠페인 생성
+• Campaigns → Create Campaign → Push
+• 메시지 내용 및 이미지 설정
+• 타겟 세그먼트 선택 및 발송 일정 설정
+
+참고 자료:
+• Push Notification Setup: https://help.moengage.com/hc/en-us/articles/115003966667-Push-Notification-Setup
+• SDK Integration Guide: https://help.moengage.com/hc/en-us/sections/115003737207-SDK-Integration
+
+더 자세한 정보가 필요하시면 추가 질문해주세요! 🚀"""
+    
+    elif any(term in user_message_lower for term in ['캠페인', 'campaign']):
+        return """🎯 MoEngage 캠페인 생성 방법
+
+MoEngage에서 마케팅 캠페인을 만드는 방법을 안내해드리겠습니다:
+
+1단계: 캠페인 유형 선택
+• Push 알림, SMS, 이메일, 인앱 메시지 중 선택
+• Campaigns → Create Campaign
+
+2단계: 타겟 설정
+• 사용자 세그먼트 선택
+• 개인화 조건 설정
+• A/B 테스트 그룹 구성 (선택사항)
+
+3단계: 콘텐츠 작성
+• 메시지 내용 작성
+• 이미지 및 버튼 추가
+• 딥링크 및 랜딩 페이지 설정
+
+4단계: 발송 일정
+• 즉시 발송 또는 예약 발송
+• 트리거 조건 설정 (이벤트 기반)
+
+참고 자료:
+• Creating Campaigns: https://help.moengage.com/hc/en-us/articles/115003479528-Creating-Campaigns
+• Campaign Builder Guide: https://help.moengage.com/hc/en-us/sections/115003735127-Campaigns
+
+더 구체적인 질문이 있으시면 언제든 물어보세요! 🚀"""
+    
+    elif any(term in user_message_lower for term in ['세그먼트', 'segment']):
+        return """👥 사용자 세그먼트 생성 방법
+
+MoEngage에서 사용자 세그먼트를 생성하는 방법을 안내해드리겠습니다:
+
+1단계: 세그먼트 생성 시작
+• MoEngage 대시보드 → Analytics → Segments
+• Create Segment 버튼 클릭
+
+2단계: 조건 설정
+• 사용자 속성 (나이, 성별, 위치 등)
+• 행동 기반 조건 (앱 사용, 구매 이력 등)
+• 이벤트 기반 조건 (특정 액션 수행)
+
+3단계: 조건 조합
+• AND/OR 논리 연산자 사용
+• 여러 조건을 조합하여 정교한 타겟팅
+• 실시간 사용자 수 확인
+
+4단계: 세그먼트 저장 및 활용
+• 세그먼트 이름 설정 및 저장
+• 캠페인에서 타겟 그룹으로 활용
+• 정기적인 세그먼트 성과 분석
+
+참고 자료:
+• Segmentation Guide: https://help.moengage.com/hc/en-us/sections/115003737167-Segmentation
+• User Analytics: https://help.moengage.com/hc/en-us/sections/115003737147-Analytics
+
+더 구체적인 질문이 있으시면 언제든 물어보세요! 🚀"""
+    
+    else:
+        return f"""🤖 MoEngage Helper
+
+"{user_message}"에 대한 질문을 받았습니다.
+
+추천 질문들:
+• MoEngage 캠페인 생성 방법
+• 푸시 알림 설정 가이드  
+• SMS 캠페인 설정 방법
+• 사용자 세그먼트 생성 방법
+• 분석 리포트 확인 방법
+
+도움이 되는 링크:
+• MoEngage Help Center: https://help.moengage.com/hc/en-us
+• Getting Started Guide: https://help.moengage.com/hc/en-us/categories/115003745208-Getting-Started
+
+더 구체적인 질문을 입력해주시면 더 정확한 답변을 드릴 수 있습니다! 🚀"""
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
