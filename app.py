@@ -1,17 +1,20 @@
 from flask import Flask, request, jsonify, render_template_string, redirect, url_for
 import requests
 import json
+import re
+from bs4 import BeautifulSoup
+from urllib.parse import quote
 
 app = Flask(__name__)
 
-# HTML 템플릿 (JavaScript 완전 제거, Form 기반)
+# HTML 템플릿 (Form 기반)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MoEngage Helper - No JavaScript</title>
+    <title>MoEngage Helper - Real Search</title>
     <style>
         * {
             margin: 0;
@@ -49,7 +52,7 @@ HTML_TEMPLATE = """
         }
         
         .status-bar {
-            background: #2ed573;
+            background: #ff6b6b;
             color: white;
             padding: 10px;
             text-align: center;
@@ -184,17 +187,26 @@ HTML_TEMPLATE = """
         .clear-button:hover {
             background: #ff5252;
         }
+        
+        .search-info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 12px;
+            color: #1976d2;
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            <h1>🚀 MoEngage Helper - No JavaScript Version</h1>
-            <p>MoEngage 관련 질문을 한국어로 입력해주세요</p>
+            <h1>🚀 MoEngage Helper - Real Search</h1>
+            <p>MoEngage Help Center에서 실제 검색하여 답변합니다</p>
         </div>
         
-        <div class="status-bar">
-            ✅ 상태: JavaScript 없이 정상 작동 중 - Form 기반 채팅
+        <div class="status-bar" id="statusBar">
+            {{ status_message or "✅ 실시간 MoEngage Help Center 검색 준비됨" }}
         </div>
         
         <div class="chat-messages">
@@ -207,24 +219,24 @@ HTML_TEMPLATE = """
             {% if not messages %}
             <div class="welcome-message">
                 <div>안녕하세요! 👋 <strong>MoEngage Helper</strong>입니다.</div>
-                <div>MoEngage에 대한 질문을 한국어로 입력해주세요.</div>
+                <div>MoEngage Help Center에서 실제 검색하여 정확한 답변을 제공합니다.</div>
                 
                 <div class="examples">
-                    <strong>💡 예시 질문 (클릭하면 자동 입력):</strong><br>
+                    <strong>💡 예시 질문 (클릭하면 자동 검색):</strong><br>
                     
                     <form class="example-form" method="POST" action="/ask">
-                        <input type="hidden" name="message" value="MoEngage 캠페인 만드는 방법">
-                        <button type="submit" class="example-button">• "MoEngage 캠페인 만드는 방법"</button>
+                        <input type="hidden" name="message" value="standard attribute는 어떻게 있어?">
+                        <button type="submit" class="example-button">• "standard attribute는 어떻게 있어?"</button>
                     </form>
                     
                     <form class="example-form" method="POST" action="/ask">
-                        <input type="hidden" name="message" value="푸시 알림 설정하는 방법">
-                        <button type="submit" class="example-button">• "푸시 알림 설정하는 방법"</button>
+                        <input type="hidden" name="message" value="SMS 캠페인 설정하는 방법">
+                        <button type="submit" class="example-button">• "SMS 캠페인 설정하는 방법"</button>
                     </form>
                     
                     <form class="example-form" method="POST" action="/ask">
-                        <input type="hidden" name="message" value="SMS sender 설정 방법">
-                        <button type="submit" class="example-button">• "SMS sender 설정 방법"</button>
+                        <input type="hidden" name="message" value="푸시 알림 설정 가이드">
+                        <button type="submit" class="example-button">• "푸시 알림 설정 가이드"</button>
                     </form>
                     
                     <form class="example-form" method="POST" action="/ask">
@@ -247,7 +259,7 @@ HTML_TEMPLATE = """
                     required
                     value="{{ user_input or '' }}"
                 >
-                <button type="submit" class="send-button">전송</button>
+                <button type="submit" class="send-button">검색 & 답변</button>
             </form>
             
             {% if messages %}
@@ -261,7 +273,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# 세션 데이터 저장 (실제 운영에서는 데이터베이스 사용)
+# 세션 데이터 저장
 chat_sessions = {}
 
 @app.route('/')
@@ -275,8 +287,8 @@ def ask():
     if not user_message:
         return redirect(url_for('index'))
     
-    # 기존 대화 내역 가져오기 (간단한 구현)
-    session_id = request.remote_addr  # IP를 세션 ID로 사용
+    # 기존 대화 내역 가져오기
+    session_id = request.remote_addr
     if session_id not in chat_sessions:
         chat_sessions[session_id] = []
     
@@ -286,14 +298,41 @@ def ask():
         'content': user_message
     })
     
-    # AI 응답 생성
-    response = generate_response(user_message)
+    # 검색 상태 메시지 추가
+    status_message = f"🔍 '{user_message}' 검색 중... MoEngage Help Center에서 검색하고 번역 중입니다."
     
-    # AI 응답 추가
-    chat_sessions[session_id].append({
-        'sender': 'assistant', 
-        'content': response
-    })
+    try:
+        # 실제 MoEngage Help Center 검색
+        response = search_and_generate_response(user_message)
+        
+        # AI 응답 추가
+        chat_sessions[session_id].append({
+            'sender': 'assistant', 
+            'content': response
+        })
+        
+        status_message = "✅ 검색 완료 - MoEngage Help Center에서 최신 정보를 가져왔습니다"
+        
+    except Exception as e:
+        # 오류 발생 시 기본 응답
+        error_response = f"""❌ **검색 중 오류 발생**
+
+죄송합니다. MoEngage Help Center 검색 중 오류가 발생했습니다.
+
+**오류 내용:** {str(e)}
+
+**직접 확인해보세요:**
+• [MoEngage Help Center](https://help.moengage.com/hc/en-us)
+• [검색 페이지](https://help.moengage.com/hc/en-us/search?query={quote(user_message)})
+
+다시 시도하거나 다른 질문을 해보세요! 🚀"""
+        
+        chat_sessions[session_id].append({
+            'sender': 'assistant', 
+            'content': error_response
+        })
+        
+        status_message = "❌ 검색 오류 발생 - 다시 시도해주세요"
     
     # 대화 내역이 너무 길어지면 오래된 것 삭제
     if len(chat_sessions[session_id]) > 20:
@@ -301,7 +340,8 @@ def ask():
     
     return render_template_string(HTML_TEMPLATE, 
                                 messages=chat_sessions[session_id], 
-                                user_input="")
+                                user_input="",
+                                status_message=status_message)
 
 @app.route('/clear', methods=['POST'])
 def clear():
@@ -309,6 +349,226 @@ def clear():
     if session_id in chat_sessions:
         del chat_sessions[session_id]
     return redirect(url_for('index'))
+
+def translate_korean_to_english(korean_text):
+    """한국어를 영어 검색어로 번역"""
+    translation_map = {
+        # 기본 용어
+        'standard attribute': 'standard attribute',
+        '표준 속성': 'standard attribute',
+        '스탠다드 어트리뷰트': 'standard attribute',
+        
+        # SMS 관련
+        'sms': 'sms',
+        '문자': 'sms',
+        '메시지': 'message',
+        'sender': 'sender',
+        '발신자': 'sender',
+        '발송': 'send',
+        
+        # 푸시 알림
+        '푸시': 'push',
+        '알림': 'notification',
+        'push': 'push notification',
+        
+        # 캠페인
+        '캠페인': 'campaign',
+        '마케팅': 'marketing',
+        '생성': 'create',
+        '만들기': 'create',
+        '설정': 'setup configuration',
+        
+        # 세그먼트
+        '세그먼트': 'segment',
+        '사용자': 'user',
+        '그룹': 'group',
+        '타겟': 'target',
+        
+        # 일반적인 동작
+        '방법': 'how to',
+        '가이드': 'guide',
+        '튜토리얼': 'tutorial',
+        '도움말': 'help',
+        '어떻게': 'how to'
+    }
+    
+    # 텍스트 정규화
+    korean_text = korean_text.lower().strip()
+    english_terms = []
+    
+    # 직접 매핑 확인
+    for korean, english in translation_map.items():
+        if korean in korean_text:
+            english_terms.append(english)
+    
+    # 매핑되지 않은 경우 원본 텍스트 사용
+    if not english_terms:
+        english_terms = [korean_text]
+    
+    return ' '.join(list(set(english_terms)))  # 중복 제거
+
+def search_moengage_help_center(query):
+    """MoEngage Help Center에서 실제 검색"""
+    try:
+        # 검색 URL 구성
+        search_url = f"https://help.moengage.com/hc/en-us/search?query={quote(query)}"
+        
+        print(f"검색 URL: {search_url}")
+        
+        # 검색 요청
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        response = requests.get(search_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        # HTML 파싱
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        results = []
+        
+        # 검색 결과 추출 (다양한 선택자 시도)
+        article_selectors = [
+            'article.search-result',
+            '.search-result-article',
+            '.search-results .article',
+            '.search-results a',
+            '[data-search-result]'
+        ]
+        
+        articles = []
+        for selector in article_selectors:
+            articles = soup.select(selector)
+            if articles:
+                print(f"찾은 선택자: {selector}, 결과 수: {len(articles)}")
+                break
+        
+        if not articles:
+            # 대안: 일반적인 링크 검색
+            articles = soup.find_all('a', href=re.compile(r'/articles/'))
+            print(f"대안 검색 결과: {len(articles)}")
+        
+        for article in articles[:5]:  # 상위 5개 결과만
+            try:
+                # 제목 추출
+                title_elem = article.find('h3') or article.find('h2') or article.find('.search-result-title') or article
+                title = title_elem.get_text(strip=True) if title_elem else 'No title'
+                
+                # URL 추출
+                url = article.get('href', '')
+                if url and not url.startswith('http'):
+                    url = 'https://help.moengage.com' + url
+                
+                # 요약 추출
+                summary_elem = article.find('.search-result-description') or article.find('p')
+                summary = summary_elem.get_text(strip=True) if summary_elem else ''
+                
+                if title and url and 'No title' not in title:
+                    results.append({
+                        'title': title,
+                        'url': url,
+                        'summary': summary[:200] + '...' if len(summary) > 200 else summary
+                    })
+                    
+            except Exception as e:
+                print(f"결과 파싱 오류: {e}")
+                continue
+        
+        print(f"최종 검색 결과: {len(results)}개")
+        return results
+        
+    except Exception as e:
+        print(f"검색 오류: {e}")
+        return []
+
+def get_article_content(url):
+    """개별 문서 내용 가져오기"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # 본문 내용 추출
+        content_selectors = [
+            '.article-body',
+            '.article-content', 
+            '.section-article-content',
+            '#article-body',
+            'main article'
+        ]
+        
+        content = ""
+        for selector in content_selectors:
+            content_elem = soup.select_one(selector)
+            if content_elem:
+                content = content_elem.get_text(strip=True)
+                break
+        
+        return content[:1000] + '...' if len(content) > 1000 else content
+        
+    except Exception as e:
+        print(f"문서 내용 가져오기 오류: {e}")
+        return ""
+
+def search_and_generate_response(user_message):
+    """검색 및 응답 생성"""
+    # 1. 한국어를 영어로 번역
+    english_query = translate_korean_to_english(user_message)
+    print(f"번역된 검색어: {english_query}")
+    
+    # 2. MoEngage Help Center 검색
+    search_results = search_moengage_help_center(english_query)
+    
+    if not search_results:
+        return f"""❌ **검색 결과 없음**
+
+"{user_message}"에 대한 MoEngage Help Center 검색 결과를 찾지 못했습니다.
+
+**직접 검색해보세요:**
+• [MoEngage Help Center 검색](https://help.moengage.com/hc/en-us/search?query={quote(english_query)})
+• [MoEngage Help Center](https://help.moengage.com/hc/en-us)
+
+다른 키워드로 다시 검색해보시거나 더 구체적인 질문을 해주세요! 🚀"""
+    
+    # 3. 첫 번째 결과의 상세 내용 가져오기 (선택사항)
+    detailed_content = ""
+    if search_results[0]['url']:
+        detailed_content = get_article_content(search_results[0]['url'])
+    
+    # 4. 응답 생성
+    response = f"""🔍 **MoEngage Help Center 검색 결과**
+
+**질문:** {user_message}
+**검색어:** {english_query}
+
+"""
+    
+    for i, result in enumerate(search_results[:3], 1):
+        response += f"""**{i}. {result['title']}**
+{result['summary']}
+📎 [자세히 보기]({result['url']})
+
+"""
+    
+    if detailed_content:
+        response += f"""**📋 주요 내용 요약:**
+{detailed_content}
+
+"""
+    
+    response += f"""**🔗 추가 도움말:**
+• [MoEngage Help Center](https://help.moengage.com/hc/en-us)
+• [직접 검색하기](https://help.moengage.com/hc/en-us/search?query={quote(english_query)})
+
+더 구체적인 질문이 있으시면 언제든 물어보세요! 🚀"""
+    
+    return response
 
 @app.route('/api/chat', methods=['POST'])
 def chat_api():
@@ -323,7 +583,7 @@ def chat_api():
                 'error': '메시지가 비어있습니다.'
             })
         
-        response = generate_response(user_message)
+        response = search_and_generate_response(user_message)
         
         return jsonify({
             'success': True,
@@ -335,139 +595,6 @@ def chat_api():
             'success': False,
             'error': str(e)
         })
-
-def generate_response(user_message):
-    """사용자 메시지에 대한 응답 생성"""
-    user_message_lower = user_message.lower()
-    
-    if any(term in user_message_lower for term in ['sms', '문자', 'sender']):
-        return """📱 SMS Sender 설정 방법
-
-MoEngage에서 SMS 발송을 위한 Sender 설정 방법을 안내해드리겠습니다:
-
-1단계: SMS 제공업체 설정
-• MoEngage 대시보드 → Settings → Channels → SMS
-• SMS 제공업체(Twilio, AWS SNS 등) 연동
-• API 키 및 인증 정보 입력
-
-2단계: Sender ID 구성
-• Sender ID 또는 발신번호 등록
-• 국가별 규정에 따른 승인 절차 진행
-• 테스트 발송으로 설정 확인
-
-3단계: SMS 캠페인 생성
-• Campaigns → Create Campaign → SMS
-• 대상 세그먼트 선택
-• 메시지 내용 작성 및 발송 일정 설정
-
-참고 자료:
-• SMS Campaign Setup Guide: https://help.moengage.com/hc/en-us/articles/229557567-SMS-Campaign
-• SMS Provider Integration: https://help.moengage.com/hc/en-us/sections/115003735167-SMS
-
-추가 질문이 있으시면 언제든 물어보세요! 🚀"""
-    
-    elif any(term in user_message_lower for term in ['푸시', '알림', 'push']):
-        return """📲 푸시 알림 설정 방법
-
-MoEngage에서 푸시 알림을 설정하는 방법을 안내해드리겠습니다:
-
-1단계: 앱 설정
-• MoEngage 대시보드 → Settings → App Settings
-• iOS: APNs 인증서 업로드
-• Android: FCM Server Key 입력
-
-2단계: SDK 연동
-• iOS/Android SDK 설치 및 초기화
-• 푸시 토큰 등록 코드 구현
-• 알림 권한 요청 설정
-
-3단계: 푸시 캠페인 생성
-• Campaigns → Create Campaign → Push
-• 메시지 내용 및 이미지 설정
-• 타겟 세그먼트 선택 및 발송 일정 설정
-
-참고 자료:
-• Push Notification Setup: https://help.moengage.com/hc/en-us/articles/115003966667-Push-Notification-Setup
-• SDK Integration Guide: https://help.moengage.com/hc/en-us/sections/115003737207-SDK-Integration
-
-더 자세한 정보가 필요하시면 추가 질문해주세요! 🚀"""
-    
-    elif any(term in user_message_lower for term in ['캠페인', 'campaign']):
-        return """🎯 MoEngage 캠페인 생성 방법
-
-MoEngage에서 마케팅 캠페인을 만드는 방법을 안내해드리겠습니다:
-
-1단계: 캠페인 유형 선택
-• Push 알림, SMS, 이메일, 인앱 메시지 중 선택
-• Campaigns → Create Campaign
-
-2단계: 타겟 설정
-• 사용자 세그먼트 선택
-• 개인화 조건 설정
-• A/B 테스트 그룹 구성 (선택사항)
-
-3단계: 콘텐츠 작성
-• 메시지 내용 작성
-• 이미지 및 버튼 추가
-• 딥링크 및 랜딩 페이지 설정
-
-4단계: 발송 일정
-• 즉시 발송 또는 예약 발송
-• 트리거 조건 설정 (이벤트 기반)
-
-참고 자료:
-• Creating Campaigns: https://help.moengage.com/hc/en-us/articles/115003479528-Creating-Campaigns
-• Campaign Builder Guide: https://help.moengage.com/hc/en-us/sections/115003735127-Campaigns
-
-더 구체적인 질문이 있으시면 언제든 물어보세요! 🚀"""
-    
-    elif any(term in user_message_lower for term in ['세그먼트', 'segment']):
-        return """👥 사용자 세그먼트 생성 방법
-
-MoEngage에서 사용자 세그먼트를 생성하는 방법을 안내해드리겠습니다:
-
-1단계: 세그먼트 생성 시작
-• MoEngage 대시보드 → Analytics → Segments
-• Create Segment 버튼 클릭
-
-2단계: 조건 설정
-• 사용자 속성 (나이, 성별, 위치 등)
-• 행동 기반 조건 (앱 사용, 구매 이력 등)
-• 이벤트 기반 조건 (특정 액션 수행)
-
-3단계: 조건 조합
-• AND/OR 논리 연산자 사용
-• 여러 조건을 조합하여 정교한 타겟팅
-• 실시간 사용자 수 확인
-
-4단계: 세그먼트 저장 및 활용
-• 세그먼트 이름 설정 및 저장
-• 캠페인에서 타겟 그룹으로 활용
-• 정기적인 세그먼트 성과 분석
-
-참고 자료:
-• Segmentation Guide: https://help.moengage.com/hc/en-us/sections/115003737167-Segmentation
-• User Analytics: https://help.moengage.com/hc/en-us/sections/115003737147-Analytics
-
-더 구체적인 질문이 있으시면 언제든 물어보세요! 🚀"""
-    
-    else:
-        return f"""🤖 MoEngage Helper
-
-"{user_message}"에 대한 질문을 받았습니다.
-
-추천 질문들:
-• MoEngage 캠페인 생성 방법
-• 푸시 알림 설정 가이드  
-• SMS 캠페인 설정 방법
-• 사용자 세그먼트 생성 방법
-• 분석 리포트 확인 방법
-
-도움이 되는 링크:
-• MoEngage Help Center: https://help.moengage.com/hc/en-us
-• Getting Started Guide: https://help.moengage.com/hc/en-us/categories/115003745208-Getting-Started
-
-더 구체적인 질문을 입력해주시면 더 정확한 답변을 드릴 수 있습니다! 🚀"""
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
